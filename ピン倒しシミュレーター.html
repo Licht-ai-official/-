@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ピン倒しシミュレーター</title>
+<style>
+:root{--bg:#f3f1ec;--card:#fffdf8;--ink:#17222d;--mute:#5d6a76;--line:#d9d4c8;--acc:#1d4ed8;--lane:#c98b45;--ok:#15803d;--ng:#b45309;
+color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12171d;--card:#1a222b;--ink:#e8edf2;--mute:#9aa7b4;--line:#2b3540;--acc:#7aa2ff;--lane:#a56f35;--ok:#4ade80;--ng:#fbbf24;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#12171d;--card:#1a222b;--ink:#e8edf2;--mute:#9aa7b4;--line:#2b3540;--acc:#7aa2ff;--lane:#a56f35;--ok:#4ade80;--ng:#fbbf24;color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 "Hiragino Sans","Yu Gothic","Noto Sans JP",system-ui,sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:22px;margin:0 0 4px;letter-spacing:.02em}
+h2{font-size:16px;margin:0 0 10px}
+.sub{color:var(--mute);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:260px 1fr;gap:14px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+label{display:block;margin:10px 0 2px;font-weight:600}
+output{font-variant-numeric:tabular-nums;color:var(--acc);font-weight:700}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--acc)}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button.main{background:var(--acc);color:var(--bg);border-color:var(--acc);font-weight:700}
+canvas{width:100%;height:auto;display:block;border-radius:8px;background:var(--card)}
+#res{min-height:3.4em;margin-top:8px}
+.fell{color:var(--ok);font-weight:700}.stood{color:var(--ng);font-weight:700}
+.scroll{overflow-x:auto;max-height:240px;overflow-y:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{border-bottom:1px solid var(--line);padding:4px 8px;text-align:right;white-space:nowrap}
+th{position:sticky;top:0;background:var(--card)}
+textarea{width:100%;height:90px;font:12px/1.4 ui-monospace,monospace;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px}
+small{color:var(--mute)}
+</style>
+</head>
+<body>
+<main>
+<h1>ピン倒しシミュレーター</h1>
+<p class="sub">ボールをピン1本にぶつけて、倒れる条件を探す。変えるのは重さ・速さ・重力のうち1回に1つだけ。</p>
+
+<div class="grid">
+<section class="card">
+<h2>条件</h2>
+<label>ボールの重さ m <output id="mo"></output> kg</label>
+<input id="m" type="range" min="0" max="100" value="62">
+<label>ボールの速さ v <output id="vo"></output> m/s</label>
+<input id="v" type="range" min="0" max="100" value="45">
+<label>重力 g <output id="go"></output> m/s²</label>
+<input id="g" type="range" min="1" max="30" step="0.01" value="9.8">
+<div class="row">
+<button data-g="1.62">月</button><button data-g="3.71">火星</button><button data-g="9.8">地球</button><button data-g="24.8">木星</button>
+</div>
+<p>運動量 p = mv = <output id="po"></output> kg·m/s</p>
+<div class="row"><button class="main" id="throw">投げる</button><button id="sweep">マップを作る（5×6, 各5回）</button></div>
+<details style="margin-top:10px"><summary>固定する条件（ふだんはそのまま）</summary>
+<label>反発係数 e <output id="eo"></output></label>
+<input id="e" type="range" min="0.1" max="0.95" step="0.05" value="0.6">
+<label>当たる高さのばらつき ± <output id="no"></output> cm</label>
+<input id="n" type="range" min="0" max="3" step="0.1" value="1">
+<small>ピン 1.5 kg・高さ 38 cm・底の幅 6 cm・重心 15 cm、ボール半径 11 cm、当たる高さ 11 cm。</small>
+</details>
+</section>
+
+<section class="card">
+<canvas id="cv" width="800" height="300" aria-label="ボールとピンの衝突"></canvas>
+<div id="res" aria-live="polite">条件を決めて「投げる」を押す。</div>
+</section>
+</div>
+
+<section class="card">
+<h2>倒れるマップ</h2>
+<canvas id="map" width="800" height="360" aria-label="倒れた回数のマップ"></canvas>
+<small id="mapnote">「マップを作る」を押すと、いまの重力でのマップができる。色が濃いほど倒れた回数が多い。</small>
+</section>
+
+<section class="card">
+<h2>記録</h2>
+<div class="scroll"><table><thead><tr><th>#</th><th>種類</th><th>m (kg)</th><th>v (m/s)</th><th>p</th><th>g</th><th>結果</th></tr></thead><tbody id="tb"></tbody></table></div>
+<div class="row"><button id="csv">CSVを表示してコピー</button><button id="clr">記録を消す</button></div>
+<textarea id="ta" hidden readonly></textarea>
+</section>
+
+<section class="card">
+<h2>モデルの前提（考察用）</h2>
+<small>ピンは剛体で、底の右端を支点に回転して倒れるとする（滑りは無視）。ボールは回転せず、床の摩擦と空気抵抗は無し。衝突は反発係数 e の1回だけ。ピンが受けた運動エネルギーが、重心を支点の真上まで持ち上げるのに必要なエネルギーを超えたら「倒れた」と判定する。</small>
+</section>
+</main>
+
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+// ピンの設定
+var P={M:1.5,H:.38,w:.06,hc:.15,r:.11,h:.11};
+var Icm=P.M*(.08*.08+P.H*P.H)/12;
+var d=Math.sqrt(P.w*P.w/4+P.hc*P.hc), a0=Math.atan((P.w/2)/P.hc), Ip=Icm+P.M*d*d;
+function mOf(s){return +(0.05*Math.pow(320,s/100)).toFixed(2)}   // 0.05〜16 kg
+function vOf(s){return +(0.1*Math.pow(200,s/100)).toFixed(2)}   // 0.1〜20 m/s
+function cur(){return{m:mOf(+$('m').value),v:vOf(+$('v').value),g:+$('g').value,e:+$('e').value,n:+$('n').value/100}}
+function hit(m,v,g,e,h){
+ var J=(1+e)*v/(1/m+h*h/Ip), om=J*h/Ip, E=.5*Ip*om*om, U=P.M*g*d*(1-Math.cos(a0));
+ return{J:J,om:om,vb:v-J/m,E:E,U:U,tip:E>U};
+}
+function labels(){
+ var c=cur();$('mo').textContent=c.m;$('vo').textContent=c.v;$('go').textContent=c.g.toFixed(2);
+ $('po').textContent=(c.m*c.v).toFixed(2);$('eo').textContent=c.e.toFixed(2);$('no').textContent=(c.n*100).toFixed(1);
+}
+['m','v','g','e','n'].forEach(function(i){$(i).addEventListener('input',labels)});
+document.querySelectorAll('[data-g]').forEach(function(b){b.onclick=function(){$('g').value=b.dataset.g;labels()}});
+labels();
+
+function tok(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+
+// ログ
+var log=[];
+function addLog(t,m,v,g,r){log.push({t:t,m:m,v:v,g:g,r:r});
+ var tr=document.createElement('tr');
+ tr.innerHTML='<td>'+log.length+'</td><td>'+t+'</td><td>'+m+'</td><td>'+v+'</td><td>'+(m*v).toFixed(2)+'</td><td>'+g.toFixed(2)+'</td><td>'+r+'</td>';
+ var tb=$('tb');tb.appendChild(tr);tb.parentNode.parentNode.scrollTop=1e6;}
+$('clr').onclick=function(){log=[];$('tb').innerHTML='';$('ta').hidden=true};
+$('csv').onclick=function(){
+ var s='no,type,m_kg,v_mps,p,g,result\n'+log.map(function(l,i){return[i+1,l.t,l.m,l.v,(l.m*l.v).toFixed(3),l.g.toFixed(2),l.r].join(',')}).join('\n');
+ var ta=$('ta');ta.value=s;ta.hidden=false;ta.select();
+ try{navigator.clipboard.writeText(s)}catch(e){}
+};
+
+// アニメーション
+var cv=$('cv'),cx=cv.getContext('2d'),S=250,FY=250,PX=2.2,st=null,raf=0;
+function draw(){
+ var bg=tok('--card'),ink=tok('--ink'),lane=tok('--lane'),acc=tok('--acc');
+ cx.clearRect(0,0,800,300);cx.fillStyle=lane;cx.fillRect(0,FY,800,50);
+ var th=st?st.th:0,pvx=(PX+P.w)*S;
+ function pt(x,y){var X=x*Math.cos(th)+y*Math.sin(th),Y=-x*Math.sin(th)+y*Math.cos(th);return[pvx+X*S,FY-Y*S]}
+ var q=[pt(-P.w,0),pt(-P.w,P.H),pt(0,P.H),pt(0,0)];
+ cx.fillStyle=ink;cx.beginPath();cx.moveTo(q[0][0],q[0][1]);for(var i=1;i<4;i++)cx.lineTo(q[i][0],q[i][1]);cx.closePath();cx.fill();
+ var c=pt(-P.w/2,P.hc);cx.fillStyle=bg;cx.beginPath();cx.arc(c[0],c[1],3,0,7);cx.fill();
+ var bx=st?st.bx:.5;cx.fillStyle=acc;cx.beginPath();cx.arc(bx*S,FY-P.r*S,P.r*S,0,7);cx.fill();
+ cx.fillStyle=tok('--mute');cx.font='12px sans-serif';cx.fillText('1 m = '+S+' px',10,20);
+}
+function run(c,h){
+ cancelAnimationFrame(raf);
+ var r=hit(c.m,c.v,c.g,c.e,h);
+ st={ph:0,t:0,bx:.5,th:0,om:0,vb:r.vb,r:r,c:c,done:false};
+ var last=performance.now(),x0=.5,x1=PX-P.r,dur=.7;
+ function step(now){
+  var dt=Math.min((now-last)/1000,.05);last=now;
+  if(st.ph===0){st.t+=dt;st.bx=x0+(x1-x0)*Math.min(st.t/dur,1);
+   if(st.t>=dur){st.ph=1;st.om=r.om}}
+  else{var sd=dt*.4,n=Math.ceil(sd/.0005),k=sd/n;
+   for(var i=0;i<n&&!st.done;i++){
+    st.th+=st.om*k;st.om+=-(P.M*c.g*d*Math.sin(a0-st.th))/Ip*k;
+    if(st.th>=Math.PI/2){st.th=Math.PI/2;st.done=true}
+    if(st.th<=0&&st.om<0){st.th=0;st.om=0;st.done=true}}
+   st.bx+=st.vb*sd;}
+  draw();
+  if(!(st.ph===1&&st.done&&(st.bx>3.4||st.bx<-.3||st.t>0&&false))&&st.ph<2)raf=requestAnimationFrame(step);
+  if(st.ph===1&&st.done&&Math.abs(st.vb)<1)setTimeout(function(){},0);
+ }
+ raf=requestAnimationFrame(step);
+ return r;
+}
+$('throw').onclick=function(){
+ var c=cur(),h=P.h+(Math.random()*2-1)*c.n,r=run(c,h);
+ var msg=r.tip?'<span class="fell">倒れた</span>':'<span class="stood">倒れなかった</span>';
+ $('res').innerHTML=msg+'　p = '+(c.m*c.v).toFixed(2)+' kg·m/s，ピンが受けたエネルギー '+r.E.toFixed(3)+' J / 倒れるのに必要 '+r.U.toFixed(3)+' J<br><small>衝突後のボールの速さ '+r.vb.toFixed(2)+' m/s（マイナスは跳ね返り）</small>';
+ addLog('単発',c.m,c.v,c.g,r.tip?'倒れた':'倒れず');
+};
+draw();
+
+// マップ
+var MS=[.05,.2,.5,1,2.7,7],VS=[.1,.3,.6,1,2,4,8,15];
+$('sweep').onclick=function(){
+ var c=cur(),mp=$('map'),x=mp.getContext('2d'),ml=70,mb=40,mt=14,W=800,H=360;
+ var cw=(W-ml-10)/VS.length,ch=(H-mb-mt)/MS.length,acc=tok('--acc'),ink=tok('--ink'),line=tok('--line'),card=tok('--card');
+ x.clearRect(0,0,W,H);x.font='13px sans-serif';
+ MS.forEach(function(m,i){VS.forEach(function(v,j){
+  var k=0;for(var t=0;t<5;t++){var h=P.h+(Math.random()*2-1)*c.n;if(hit(m,v,c.g,c.e,h).tip)k++}
+  var X=ml+j*cw,Y=mt+(MS.length-1-i)*ch;
+  x.fillStyle=card;x.fillRect(X,Y,cw-2,ch-2);x.globalAlpha=k/5;x.fillStyle=acc;x.fillRect(X,Y,cw-2,ch-2);x.globalAlpha=1;
+  x.fillStyle=k>=3?card:ink;x.textAlign='center';x.fillText(k+'/5',X+cw/2-1,Y+ch/2+4);
+  addLog('マップ',m,v,c.g,k+'/5倒れた');
+ })});
+ x.fillStyle=ink;x.textAlign='right';MS.forEach(function(m,i){x.fillText(m+' kg',ml-8,mt+(MS.length-1-i)*ch+ch/2+4)});
+ x.textAlign='center';VS.forEach(function(v,j){x.fillText(v,ml+j*cw+cw/2,H-mb+18)});
+ x.fillText('ボールの速さ v (m/s)',ml+(W-ml)/2,H-6);
+ $('mapnote').textContent='重力 g = '+c.g.toFixed(2)+' m/s²、反発係数 e = '+c.e.toFixed(2)+' のマップ。縦軸は重さ、色が濃いほど5回中で倒れた回数が多い。';
+};
+})();
+</script>
+</body>
+</html>
